@@ -1,0 +1,71 @@
+// Forecast Platform - Polymarket-style Prediction Platform
+// Database: SQLite
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============ User ============
+// Pre-seeded users, no dynamic creation
+model User {
+  id        Int      @id @default(autoincrement())
+  username  String   @unique
+  balance   Float    @default(0)
+  createdAt DateTime @default(now())
+
+  bets    Bet[]
+  ledgers Ledger[]
+}
+
+// ============ Bet ============
+// State: PLACED -> SETTLED | CANCELLED
+model Bet {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  gameId    String
+  amount    Float
+  status    String    @default("PLACED") // PLACED | SETTLED | CANCELLED
+  result    String?   // WIN | LOSE, only when SETTLED
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  ledgers Ledger[]
+}
+
+
+// ============ Ledger (Append-only) ============
+model Ledger {
+  id        Int        @id @default(autoincrement())
+  userId    Int
+  type      String    // DEPOSIT | BET_DEBIT | BET_CREDIT | BET_REFUND
+  amount    Float      // Positive for credit, negative for debit
+  betId     Int?
+  createdAt DateTime   @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  bet  Bet? @relation(fields: [betId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([betId])
+  @@index([userId, createdAt])
+}
+
+
+// ============ Idempotency ============
+// Same key + same request = replay cached response
+// Same key + different request = 409 Conflict
+model IdempotencyRecord {
+  id            Int      @id @default(autoincrement())
+  key           String   @unique
+  type          String   // "DEPOSIT" | "BET"
+  requestBody   String   // JSON of request for conflict detection
+  responseStatus Int
+  responseBody  String   // JSON of response for replay
+  createdAt     DateTime @default(now())
+}
